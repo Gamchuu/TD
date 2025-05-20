@@ -1,4 +1,5 @@
 import pygame
+import random
 import sys
 
 # Pygame initialisieren
@@ -9,7 +10,7 @@ font = pygame.font.Font(None, 50)
 # Konstanten
 WIDTH = 1280
 HEIGHT = 780
-WINDOW_TITLE = "Mein Pygame Spiel"
+WINDOW_TITLE = "Tower Defense"
 FPS = 60
 
 # Farben
@@ -18,6 +19,12 @@ WHITE = (255, 255, 255)
 RED = (255, 0, 0)
 GREEN = (0, 255, 0)
 BLUE = (0, 0, 255)
+
+BLOON_TYPES = {
+    "green": ((0, 255, 0), 1),
+    "blue": ((0, 0, 255), 2),
+    "red": ((255, 0, 0), 3),
+}
 
 # Spielfenster erstellen
 screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.SRCALPHA)
@@ -39,6 +46,10 @@ tower_size = 40
 player_speed = 5
 menu = "Game"
 Bloons = []
+health = 100
+money = 200
+wave = 1
+    
 
 def get_tile(col, row):
     """Gibt ein Surface mit dem Tile in Spalte col, Zeile row zurück."""
@@ -55,16 +66,25 @@ def RenderPath():
             pygame.draw.rect(screen, "cyan", pygame.Rect(checkpoint[0], checkpoint[1], 50, 50), 5, 5)
 
 BloonsData = []  # Each bloon: [x, y, checkpoint, alive]
-bloonCounter = 20
-movingspeed = 5
+bloonCounter = 2
+movingspeed = 6
 bloondistance = 100
 spawnedStatus = False
 
 def SpawnBloons():
-    global BloonsData, bloonCounter, bloondistance, spawnedStatus
+    global BloonsData, bloonCounter, bloondistance, spawnedStatus, movingspeed, wave
     if not spawnedStatus:
+        bloonCounter *= wave
         for bloon in range(bloonCounter):
-            BloonsData.append([0-(bloon*bloondistance), HEIGHT/2-80, 1, True])
+            # Alternate types for demo: green, blue, red
+            if bloon % 3 == 0:
+                btype = "green"
+            elif bloon % 3 == 1:
+                btype = "blue"
+            else:
+                btype = "red"
+            color, hp = BLOON_TYPES[btype]
+            BloonsData.append([0-(bloon*bloondistance), HEIGHT/2-80, 1, True, btype, hp])
         spawnedStatus = True
 
 # Add this near where you define Towers
@@ -83,7 +103,7 @@ def TowerRadius():
         surf.fill((0, 0, 0, 0))
         pygame.draw.circle(
             surf,
-            (128, 128, 128, 128),
+            (20, 20, 20, 20),
             (radius, radius),
             radius
         )
@@ -98,8 +118,9 @@ def TowerRadius():
                 dx = tower_cx - closest_x
                 dy = tower_cy - closest_y
                 if dx*dx + dy*dy <= radius*radius:
-                    print(f"Bloon {bloonRect} popped!")
-                    bloonData[3] = False  # Mark as dead
+                    bloonData[5] -= 1  # Reduce HP
+                    if bloonData[5] <= 0:
+                        bloonData[3] = False  # Mark as dead
                     tower_cooldowns[i] = tower_pop_delay
                     break
 
@@ -136,6 +157,26 @@ def createCheckpointMover(checkpoint_idx):
 
 checkpoint_movers = [createCheckpointMover(i) for i in range(len(checkpoints))]
 
+def checkBloonStatus():
+    global spawnedStatus, wave, money
+    for bloon in BloonsData:
+        if bloon[0] > 1200:
+            bloon[3] = False
+    
+    
+    counter1 = 0
+    for bloon in BloonsData:
+        counter1 += 1
+    counter = 0
+    for bloon in BloonsData:
+        if bloon[3] == False:
+            counter += 1
+    if counter == counter1:
+        spawnedStatus = False
+        wave +=1
+        money += 200*wave
+        print("respawning Bloon")
+
 def bloonsMoving():
     global BloonsData, Bloons
     SpawnBloons()
@@ -152,8 +193,13 @@ def bloonsMoving():
                 pass
 
             bloonRect = pygame.Rect(bloon[0], bloon[1], 50, 50)
-            pygame.draw.rect(screen, "green", bloonRect)
+            color = BLOON_TYPES[bloon[4]][0]
+            pygame.draw.rect(screen, color, bloonRect)
+            # Draw HP as text
+            hp_text = font.render(str(bloon[5]), True, (255,255,255))
+            screen.blit(hp_text, (bloon[0]+10, bloon[1]+10))
             Bloons.append((bloonRect, bloon))  # Store both rect and data ref
+
 
 createCheckpoint(0, HEIGHT/2-60)
 createCheckpoint(250, HEIGHT/2-60)
@@ -164,10 +210,20 @@ createCheckpoint(950, HEIGHT/2-260)
 createCheckpoint(950, HEIGHT/2-60)
 createCheckpoint(1280, HEIGHT/2-60)
 
-
+def drawMoney():
+    ModeText = font.render(f'$: {money}', True, "white")
+    screen.blit(ModeText, (10, 10))
 
 Towers = []
 renderplacer = False
+SIDEBAR_WIDTH = 200
+sidebar_rect = pygame.Rect(WIDTH - SIDEBAR_WIDTH, 0, SIDEBAR_WIDTH, HEIGHT)
+tower_icon_rect = pygame.Rect(WIDTH - SIDEBAR_WIDTH + 50, 100, 64, 64)  # Example position for tower icon
+
+dragging_tower = False
+drag_offset = (0, 0)
+dragged_tower_pos = (0, 0)
+
 running = True
 while running:
     # Ereignisse verarbeiten
@@ -187,13 +243,35 @@ while running:
                 print("Switched to", menu)
             elif (menu == "Edit") and event.key == pygame.K_RETURN and (delay <= 0):
                 delay = 10
-                if (((player_y >= 290) and (player_y <= 360) and (player_x <= 570)) or (( player_y <= 260) and (player_y >= 190) and (player_x <= 870) and (player_x >= 500)) or ((player_y >= 290) and (player_y <= 360) and (player_x >= 800))):
+                if (((player_y >= 290) and (player_y <= 390) and (player_x <= 290)) or (( player_y <= 520) and (player_y >= 420) and (player_x <= 500) and (player_x >= 210)) or ((player_y >= 100) and (player_y <= 400) and (player_x >= 400) and (player_x <= 500)) or ((player_y >= 100) and (player_y <= 200) and (player_x >= 520) and (player_x <= 1015)) or ((player_y >= 300) and (player_y <= 400) and (player_x >= 915))):
                     print("unable to place the Tower")
                 else:
-                    Towers.append([player_x, player_y])
-                    tower_cooldowns.append(0)  # Add cooldown for new tower
-                    print("Positions Changed!", Towers)
-
+                    if money >= 200:
+                        Towers.append([player_x, player_y])
+                        tower_cooldowns.append(0)  # Add cooldown for new tower
+                        print("Positions Changed!", Towers)
+                        money -= 200
+                    else:
+                        print("No money to buy the tower! Current Money:",money)
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            mx, my = pygame.mouse.get_pos()
+            if tower_icon_rect.collidepoint(mx, my):
+                dragging_tower = True
+                drag_offset = (mx - tower_icon_rect.x, my - tower_icon_rect.y)
+                dragged_tower_pos = (mx - drag_offset[0], my - drag_offset[1])
+        if event.type == pygame.MOUSEBUTTONUP:
+            if dragging_tower:
+                mx, my = pygame.mouse.get_pos()
+                # Only place if not in sidebar and enough money
+                if mx < WIDTH - SIDEBAR_WIDTH and money >= 200:
+                    Towers.append([mx - tower_size // 2, my - tower_size // 2])
+                    tower_cooldowns.append(0)
+                    money -= 200
+                dragging_tower = False
+        if event.type == pygame.MOUSEMOTION:
+            if dragging_tower:
+                mx, my = pygame.mouse.get_pos()
+                dragged_tower_pos = (mx - drag_offset[0], my - drag_offset[1])
 
     screen.fill("black")
 
@@ -221,11 +299,37 @@ while running:
     for x in range(915, 1000, TILE_SIZE):
         for y in range(200, 360, TILE_SIZE):
             screen.blit(road_tile, (x, y))
-
-
+    
+    plant_tile = get_tile(15, 5)  # Beispiel: Tile aus Spalte 1, Zeile 2
+    for x in range(100, 150, TILE_SIZE):
+        for y in range(100, 150, TILE_SIZE):
+            screen.blit(plant_tile, (x, y))
+    
+    rock_tile = get_tile(22, 5)  # Beispiel: Tile aus Spalte 1, Zeile 2
+    for x in range(300, 350, TILE_SIZE):
+        for y in range(100, 150, TILE_SIZE):
+            screen.blit(rock_tile, (x, y))
+            
     RenderPath()
     bloonsMoving()
     TowerRadius()
+    checkBloonStatus()
+    drawMoney()
+
+    # Draw sidebar
+    pygame.draw.rect(screen, (40, 40, 40), sidebar_rect)
+    pygame.draw.rect(screen, (100, 100, 100), tower_icon_rect)
+    tower_icon_img = get_tile(19, 10)
+    screen.blit(tower_icon_img, tower_icon_rect.topleft)
+
+    # Draw dragging tower
+    if dragging_tower:
+        screen.blit(tower_icon_img, dragged_tower_pos)
+
+    # Draw towers (skip if dragging, so it doesn't overlap)
+    for tower in Towers:
+        tower_tile = get_tile(19, 10)
+        screen.blit(tower_tile, (tower[0], tower[1]))
 
     ModeText = font.render(f'Menu: {menu}', True, "white")
     screen.blit(ModeText, (WIDTH/2-100, 10))
@@ -234,9 +338,12 @@ while running:
 
     if menu == "Game":
         pass
-
+ 
     for tower in Towers:
-        pygame.draw.rect(screen, "blue", (tower[0], tower[1], tower_size, tower_size))
+        tower_tile = get_tile(19, 10)  # Beispiel: Tile aus Spalte 1, Zeile 2
+        for x in range(tower[0], tower[0]+1, TILE_SIZE):
+            for y in range(tower[1], tower[1]+1, TILE_SIZE):
+                screen.blit(tower_tile, (x, y))
 
     if renderplacer == True:
         keys = pygame.key.get_pressed()
