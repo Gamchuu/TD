@@ -27,5 +27,3 @@ Here're some of the project's best features:
 <p>3. run td.py</p>
 
 <p>4. play the game</p>
-
-<h2>💖Like my work?</h2>
